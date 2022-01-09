@@ -1,14 +1,28 @@
 #!/bin/bash
 #
-# Copyright (C) 2020 by UsergeTeam@Github, < https://github.com/UsergeTeam >.
+# Copyright (C) 2020-2022 by UsergeTeam@Github, < https://github.com/UsergeTeam >.
 #
 # This file is part of < https://github.com/UsergeTeam/Userge > project,
 # and is released under the "GNU v3.0 License Agreement".
-# Please see < https://github.com/uaudith/Userge/blob/master/LICENSE >
+# Please see < https://github.com/UsergeTeam/Userge/blob/master/LICENSE >
 #
 # All rights reserved.
 
-declare -r pVer=$(sed -E 's/\w+ ([2-3])\.([0-9]+)\.([0-9]+)/\1.\2.\3/g' < <(python3.8 -V))
+declare -r minPVer=8
+declare -r maxPVer=9
+
+getPythonVersion() {
+    local -i count=$minPVer
+    local found
+    while true; do
+        found=$(python3.$count -c "print('hi')" 2> /dev/null)
+        test "$found" && break
+        count+=1
+        [[ $count -gt $maxPVer ]] && break
+    done
+    local ptn='s/Python (3\.[0-9]{1,2}\.[0-9]{1,2}).*/\1/g'
+    declare -gr pVer=$(sed -E "$ptn" <<< "$(python3.$count -V 2> /dev/null)")
+}
 
 log() {
     local text="$*"
@@ -17,20 +31,13 @@ log() {
 }
 
 quit() {
-    local err="\t:: ERROR :: $1\nExiting With SIGTERM ..."
+    local err="\t:: ERROR :: $1\nExiting With SIGTERM (143) ..."
     if (( getMessageCount )); then
         replyLastMessage "$err"
     else
         log "$err"
     fi
-    exit 1
-}
-
-stopBGProcesses() {
-    log "Exiting With SIGINT ..."
-    echo quit >> logs/logbot.stdin
-    log "Cleaning BG Processes ..."
-    sleep 3
+    exit 143
 }
 
 runPythonCode() {
@@ -38,7 +45,9 @@ runPythonCode() {
 }
 
 runPythonModule() {
-    python${pVer%.*} -m "$@"
+    python${pVer%.*} -m "$@" &
+    setProc $!
+    waitProc
 }
 
 gitInit() {
@@ -47,6 +56,14 @@ gitInit() {
 
 gitClone() {
     git clone "$@" &> /dev/null
+}
+
+remoteIsExist() {
+    grep -q $1 < <(git remote)
+}
+
+addHeroku() {
+    git remote add heroku $HEROKU_GIT_URL
 }
 
 addUpstream() {
@@ -61,6 +78,19 @@ fetchUpstream() {
     git fetch $UPSTREAM_REMOTE &> /dev/null
 }
 
+fetchBranches() {
+    local r_bs l_bs
+    r_bs=$(grep -oP '(?<=refs/heads/)\w+' < <(git ls-remote --heads $UPSTREAM_REMOTE))
+    l_bs=$(grep -oP '\w+' < <(git branch))
+    for r_b in $r_bs; do
+        [[ $l_bs =~ $r_b ]] || git branch $r_b $UPSTREAM_REMOTE/$r_b &> /dev/null
+    done
+}
+
+updateBuffer() {
+    git config http.postBuffer 524288000
+}
+
 upgradePip() {
     pip3 install -U pip &> /dev/null
 }
@@ -70,18 +100,18 @@ installReq() {
 }
 
 printLine() {
-    echo ========================================================
+    echo '->- ->- ->- ->- ->- ->- ->- --- -<- -<- -<- -<- -<- -<- -<-'
 }
 
 printLogo() {
     printLine
     echo '
- _   _ ____  _____ ____   ____ _____  ____  _   _ _____ 
-| | | / ___|| ____|  _ \ / ___| ____|/ __ \| | | |_   _|
-| | | \___ \|  _| | |_) | |  _|  _| / / _` | | | | | |  
-| |_| |___) | |___|  _ <| |_| | |__| | (_| | |_| | | |  
- \___/|____/|_____|_| \_\\____|_____\ \__,_|\___/  |_|  
-                                     \____/
+     ________            __  __               ______   
+    /_  __/ /_  ___     / / / /_______  _____/ ____/__ 
+     / / / __ \/ _ \   / / / / ___/ _ \/ ___/ / __/ _ \
+    / / / / / /  __/  / /_/ (__  )  __/ /  / /_/ /  __/
+   /_/ /_/ /_/\___/   \____/____/\___/_/   \____/\___/ 
+                                                     
 '
     printLine
 }

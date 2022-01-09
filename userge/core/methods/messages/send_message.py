@@ -1,25 +1,27 @@
 # pylint: disable=missing-module-docstring
 #
-# Copyright (C) 2020 by UsergeTeam@Github, < https://github.com/UsergeTeam >.
+# Copyright (C) 2020-2022 by UsergeTeam@Github, < https://github.com/UsergeTeam >.
 #
 # This file is part of < https://github.com/UsergeTeam/Userge > project,
 # and is released under the "GNU v3.0 License Agreement".
-# Please see < https://github.com/uaudith/Userge/blob/master/LICENSE >
+# Please see < https://github.com/UsergeTeam/Userge/blob/master/LICENSE >
 #
 # All rights reserved.
 
 __all__ = ['SendMessage']
 
 import asyncio
-from typing import Optional, Union
+import inspect
+from typing import Optional, Union, List
 
 from pyrogram.types import (
     InlineKeyboardMarkup, ReplyKeyboardMarkup,
-    ReplyKeyboardRemove, ForceReply)
+    ReplyKeyboardRemove, ForceReply, MessageEntity)
 
 from userge import Config
-from ...ext import RawClient
+from userge.utils import secure_text
 from ... import types
+from ...ext import RawClient
 
 
 class SendMessage(RawClient):  # pylint: disable=missing-class-docstring
@@ -29,10 +31,12 @@ class SendMessage(RawClient):  # pylint: disable=missing-class-docstring
                            del_in: int = -1,
                            log: Union[bool, str] = False,
                            parse_mode: Union[str, object] = object,
+                           entities: List[MessageEntity] = None,
                            disable_web_page_preview: Optional[bool] = None,
                            disable_notification: Optional[bool] = None,
                            reply_to_message_id: Optional[int] = None,
                            schedule_date: Optional[int] = None,
+                           protect_content: bool = None,
                            reply_markup: Union[InlineKeyboardMarkup,
                                                ReplyKeyboardMarkup,
                                                ReplyKeyboardRemove,
@@ -68,6 +72,10 @@ class SendMessage(RawClient):  # pylint: disable=missing-class-docstring
                 Pass "html" to enable HTML-style parsing only.
                 Pass None to completely disable style parsing.
 
+            entities (List of :obj:`~pyrogram.types.MessageEntity`):
+                List of special entities that appear in message text,
+                which can be specified instead of *parse_mode*.
+
             disable_web_page_preview (``bool``, *optional*):
                 Disables link previews for links in this message.
 
@@ -81,6 +89,9 @@ class SendMessage(RawClient):  # pylint: disable=missing-class-docstring
             schedule_date (``int``, *optional*):
                 Date when the message will be automatically sent. Unix time.
 
+            protect_content (``bool``, *optional*):
+                Protects the contents of the sent message from forwarding and saving.
+
             reply_markup (:obj:`InlineKeyboardMarkup` | :obj:`ReplyKeyboardMarkup`
             | :obj:`ReplyKeyboardRemove` | :obj:`ForceReply`, *optional*):
                 Additional interface options. An object for an inline keyboard,
@@ -90,21 +101,23 @@ class SendMessage(RawClient):  # pylint: disable=missing-class-docstring
         Returns:
             :obj:`Message`: On success, the sent text message or True is returned.
         """
+        if text and chat_id not in Config.AUTH_CHATS:
+            text = secure_text(str(text))
         msg = await super().send_message(chat_id=chat_id,
                                          text=text,
                                          parse_mode=parse_mode,
+                                         entities=entities,
                                          disable_web_page_preview=disable_web_page_preview,
                                          disable_notification=disable_notification,
                                          reply_to_message_id=reply_to_message_id,
                                          schedule_date=schedule_date,
+                                         protect_content=protect_content,
                                          reply_markup=reply_markup)
+        module = inspect.currentframe().f_back.f_globals['__name__']
         if log:
-            args = [msg]
-            if isinstance(log, str):
-                args.append(log)
-            await self._channel.fwd_msg(*args)
+            await self._channel.fwd_msg(msg, module if isinstance(log, bool) else log)
         del_in = del_in or Config.MSG_DELETE_TIMEOUT
         if del_in > 0:
             await asyncio.sleep(del_in)
             return bool(await msg.delete())
-        return types.bound.Message(self, msg)
+        return types.bound.Message.parse(self, msg, module=module)
